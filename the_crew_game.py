@@ -11,7 +11,7 @@ class TheCrewGame(Game):
     ARROW_TOKENS = ['<', '<<', '<<<', '<<<<']
     OMEGA_TOKEN = 'Ω'  # New omega token
 
-    def __init__(self, num_players=4, num_mission=1, seed=None):
+    def __init__(self, num_players=4, num_mission=8, seed=None):
       # Ask the user to select a mission number
         if num_mission not in mock_missions.missions:
             raise Exception("Invalid mission number selected.")
@@ -43,6 +43,8 @@ class TheCrewGame(Game):
         result = self._deal_cards()
         self.hands = result[0]
         self.jarvis_hands = result[1]
+        if self.jarvis_hands:
+            self.hands[2] = self.jarvis_hands['face_up']
         
         self._print_initial_hands()
         self.played_cards = []
@@ -128,26 +130,23 @@ class TheCrewGame(Game):
         for player_id in self.turn_order:
             if player_id == commander:
                 continue  # Skip the commander since they are asking
-            response = input(f"Player {player_id + 1}, do you want to take on all tasks for this mission? (yes/no): ").strip().lower()
+            response = input(f"state just for following question: {self.hands[player_id]} Question: Player {player_id + 1}, do you want to take on all tasks for this mission? (yes/no): ").strip().lower()
             while response not in ["yes", "no"]:
                 response = input("Invalid input. Please respond with 'yes' or 'no': ").strip().lower()
-        
+            if response == 'yes':
+                self.assigned_tasks = {task: player_id for task in self.tasks}
+                print(f"Player {player_id + 1} will take on all tasks!")
+                return
+                
         # If no one takes on all tasks, the commander decides who will take on all tasks
         print(f"\nCommander (Player {commander + 1}) decides who will take on all tasks.")
-        decision = input(f"Commander, do you want to take on all the tasks yourself? (yes/no): ").strip().lower()
-        while decision not in ["yes", "no"]:
-            decision = input("Invalid input. Please respond with 'yes' or 'no': ").strip().lower()
 
-        if decision == "yes":
-            self.assigned_tasks = {task: commander for task in self.tasks}
-            print(f"Commander (Player {commander + 1}) will take on all tasks!")
-        else:
-            # If the commander decides to assign all tasks to another player, ask the commander to choose a player
-            target_player = int(input(f"Commander, which player do you want to assign all tasks to? (1-{self.num_players}): ").strip()) - 1
-            while target_player < 0 or target_player >= self.num_players or target_player == commander:
-                target_player = int(input(f"Invalid input. Choose a valid player (1-{self.num_players}): ").strip()) - 1
-            self.assigned_tasks = {task: target_player for task in self.tasks}
-            print(f"Player {target_player + 1} will take on all tasks!")
+        # If the commander decides to assign all tasks to another player, ask the commander to choose a player
+        target_player = int(input(f"Commander, which player do you want to assign all tasks to other than yourself which is {commander + 1}? (1-{self.num_players}): ").strip()) - 1
+        while target_player < 0 or target_player >= self.num_players or target_player == commander:
+            target_player = int(input(f"Invalid input. Choose a valid player (1-{self.num_players}): ").strip()) - 1
+        self.assigned_tasks = {task: target_player for task in self.tasks}
+        print(f"Player {target_player + 1} will take on all tasks!")
     
 
     def _commanders_distribution(self):
@@ -305,7 +304,7 @@ class TheCrewGame(Game):
         
         if self.num_players == 2:
             # Remove the 4 rocket cards for JARVIS (JARVIS will not get rocket cards)
-            jarvis_deck = [card for card in deck if card not in self.ROCKETS]
+            jarvis_deck = [card for card in deck if card != 'R4']
             
             # Deal 14 cards to JARVIS (7 face-up and 7 face-down)
             jarvis_hand = {
@@ -314,7 +313,7 @@ class TheCrewGame(Game):
             }
             
             # The remaining cards (including rocket cards) are dealt to the human players
-            remaining_deck = [card for card in deck if card in self.ROCKETS] + jarvis_deck[14:]
+            remaining_deck = ['R4'] + jarvis_deck[14:]
 
             hands = {i: [] for i in range(2)}  # Two human players
             for i, card in enumerate(remaining_deck):
@@ -336,7 +335,7 @@ class TheCrewGame(Game):
         # When the game starts, JARVIS can only use 7 revealed cards
         self.jarvis_revealed_cards = self.jarvis_hands['face_up']
         self.jarvis_hidden_cards = self.jarvis_hands['face_down']
-        
+        self.jarvis_dictionary = {self.jarvis_hands['face_up'][i]: self.jarvis_hands['face_down'][i] for i in range(7)}
         # Create a method for JARVIS to play cards
         self.jarvis_play = lambda move: self._handle_jarvis_play(move)
 
@@ -390,7 +389,9 @@ class TheCrewGame(Game):
     def activate_distress_signal(self):
         """Method to handle the distress signal activation logic."""
         # Ask if players want to use the distress signal
-        distress_signal_choice = input("Do you want to send a distress signal? (yes/no): ").strip().lower()
+        distress_signal_choice = "no"
+        if self.num_players != 2:
+            distress_signal_choice = input("Do you want to send a distress signal? (yes/no): ").strip().lower()
         if distress_signal_choice != "yes":
             print("No distress signal sent.")
             return
@@ -418,7 +419,7 @@ class TheCrewGame(Game):
             pass_card = input(f"Player {i+1}, choose a card to pass (cannot be a rocket card): ").strip().upper()
             
             while pass_card not in self.hands[i] or pass_card in self.ROCKETS:
-                print("Invalid card choice. Please select a valid card that is not a rocket.")
+                print(f"Invalid card choice. Please select a valid card that is not a rocket.")
                 pass_card = input(f"Player {i+1}, choose a card to pass (cannot be a rocket card): ").strip().upper()
 
             # Remove the card from the current player's hand
@@ -470,11 +471,29 @@ class TheCrewGame(Game):
         # Check if any player ran out of cards
         if not any(self.hands.values()) and set(self.completed_tasks) != set(self.task_ordering):
             print("❌ A player ran out of cards before completing all tasks. Mission failed!")
-            self.failed = True
+            self.completed_tasks = []  # Reset completed tasks
+            self.tasks = self.task_ordering.copy()  # Reset tasks
+            self.activate_distress_signal()  # Reactivate any conditions (e.g., distress signal)
+            self.attempts += 1  # Increment attempt count due to mission failure
+             # Reshuffle and redistribute cards for a new attempt
+            result = self._deal_cards()
+            self.hands = result[0]
+            self.jarvis_hands = result[1]
+            
+            self._print_initial_hands()
+            self.played_cards = []
+            self.trick = []
+            self.completed_tasks = []  # Now tracking actual cards
+            # Reapply special conditions like commander’s decision or distribution
+            self._apply_special_conditions()
             return False  # Game continues, mission is failed, it will restart
 
         # Mission is completed if all tasks are completed
         if set(self.completed_tasks) == set(self.task_ordering):
+            return True
+        
+        if self.attempts > 10:
+            raise GameplayError('Mission failed completely. Reached the attempt limit of 10')
             return True
 
         return False  # Game continues if not yet completed
@@ -567,13 +586,16 @@ class TheCrewGame(Game):
         
         # Remove the card from JARVIS's revealed cards
         self.jarvis_revealed_cards.remove(move)
+        self.hands[2] = self.jarvis_revealed_cards
         self.trick.append((2, move))  # JARVIS is player 2
         self.turn_order = self.turn_order[1:]
-        
+        revealed_card = self.jarvis_dictionary[move]
+        self.jarvis_dictionary.pop(move)
         # If JARVIS used its last revealed card, reveal a new card from face-down
-        if self.jarvis_hidden_cards:
-            revealed_card = self.jarvis_hidden_cards.pop(0)
+        if revealed_card != '':
             self.jarvis_revealed_cards.append(revealed_card)
+            self.jarvis_dictionary[revealed_card] = ''
+            self.hands[2] = self.jarvis_revealed_cards
             print(f"JARVIS reveals a new card: {revealed_card}")
             
         # Process the trick if it's complete
@@ -726,13 +748,24 @@ class TheCrewGame(Game):
         # Check if mission is completed or failed and handle accordingly
         if self.is_over():  # If the mission is over, print the score and restart if necessary
             print(f"Mission completed in {self.attempts} attempts.")
-            print(f"Final Score: {self.attempts + self.distress_token_usage}")
+            print(f"Final Score: {self.attempts + self.distress_token_usage} attempts taken")
             return  # End the game once the mission is completed
 
-    def state(self, player_id: int | None = None) -> str:
+    def state(self, player_id: int | None = None) -> str:  
         state_str = f"\n=== The Crew: Quest for Planet Nine ===\n"
         state_str += f"Turn: {self.turn} (Player {self.turn_order[0] + 1}'s move)\n"
-
+        
+        # commander = None
+        # for player_id, hand in self.hands.items():
+        #     if 'R4' in hand:
+        #         commander = player_id
+        #         break
+        # if self.num_players == '2':
+        #     if player_id == 2:
+        #         state_str += f"\n Commander's hand (read only, can't play): {self.hands[commander]} \n"
+        #     else:
+        #         state_str += f"\n Jarvis' hand (read only, can't play): {self.hands[2]} \n"
+                
         state_str += "\n🧩 Task Breakdown:\n"
         for task in self.task_ordering:
             label = self.task_token_map[task]
@@ -775,7 +808,7 @@ class TheCrewGame(Game):
 
         if player_id is not None:
             # Handle JARVIS (player_id = 2) case separately
-            if player_id == 2 and self.num_players == 2:
+            if player_id == 2 and self.num_players == 2: 
                 state_str += f"\nJARVIS' hand (face-up): {sorted(self.jarvis_revealed_cards)}\n"
             else:
                 state_str += f"\nYour hand: {sorted(self.hands[player_id])}\n"

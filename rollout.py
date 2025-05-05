@@ -5,6 +5,9 @@ import os
 import sys
 from unittest.mock import patch
 import random
+from dotenv import load_dotenv
+load_dotenv()
+
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -51,12 +54,11 @@ def run_rollout():
     # Apply the patch first to ensure all input() calls are handled by mock_input
     with patch('builtins.input', side_effect=lambda prompt: mock_input(prompt)):
         print("Patch applied. Running game...")  # Debugging statement
-        game = TheCrewGame(num_players=3, num_mission=1, seed=42)
+        game = TheCrewGame(num_players=3, num_mission=2, seed=42)
         # Initialize the game **after** patching input
           # Adjust to use mission 8 directly
         game_log = []
-        chat_history = {str(i): [] for i in range(game.num_players)}
-        
+        chat_history = {str(i): [] for i in range(max(3,game.num_players))}
         # Handle the game start
         starting_player_id = game.whose_turn()
         state = game.state(starting_player_id)
@@ -93,7 +95,9 @@ def run_rollout():
                         "5. If the distress signal is active (before the first trick), players must pass cards in the specified direction (clockwise or counter-clockwise).\n"
                         "6. Only the assigned player may complete a task.\n"
                         "7. Always follow suit unless playing a Rocket card.\n\n"
-                        "8. Focus on the tasks assigned to the players. you have to complete those to win the game and remember the task has to be completed by the player it is assigned to. A task is won when u win the round that task card was played in for example if b2 is assigned to player 1, then player 1 has to play the highest b card in the round to win that round in which b2 is played in."
+                        "8. Focus on the tasks assigned to the players. you have to complete those to win the game and remember the task has to be completed by the player it is assigned to. A task is won when u win the round that task card was played in for example if b2 is assigned to player 1, then player 1 has to play the highest b card in the round to win that round in which b2 is played in.\n"
+                        "9. You will be given multiple atttempts. You have to sucessfully finish the mission in minimum attempts as possible. If you use the distress token, your final number of attemtps will be increadsed by 1.\n"
+                        "10. You can attempt one mission a maximum of 10 times.\n"
                         "Provide short reasoning, then your move in JSON format like:\n"
                         "{\"move\": \"P5\"} or {\"move\": \"RADIO P5\"}.\nOnly use cards from the player's hand."
                     )
@@ -137,9 +141,9 @@ def run_rollout():
                 print(log_string)
             
             # After the game is over (whether normally or due to failure)
-            scores = game.scores()
-            game_log.append(f"\nFinal Scores: {scores}")
-            print(f"\nFinal Scores: {scores}")
+            score = game.attempts+game.distress_token_usage
+            game_log.append(f"\nFinal Scores: {score} attempts taken. Distress token used: {game.distress_signal_active}")
+            print(f"\nFinal Scores: {score} attempts taken. Distress token used: {game.distress_signal_active}")
             
             if game.failed:
                 sys.exit(1)  # Exit with error code if the mission failed

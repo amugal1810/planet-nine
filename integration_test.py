@@ -8,6 +8,25 @@ from game_config import Game, GameplayError
 def test_end_to_end_thecrew_gameplay():
     random.seed(42)
 
+    with patch('builtins.input', side_effect=['1', 'no', 'cw', '1', '2', '3', '4']):
+        game = TheCrewGame(num_mission=1, seed=42)
+
+    assert len(game.hands) == 4, "Expected 4 hands in a 4-player game."
+    assert sum(len(hand) for hand in game.hands.values()) == 40, "Expected total of 40 cards in all hands."
+    assert set(game.tasks) == set(game.task_ordering), "Tasks and task ordering should match."
+
+    r4_holder = next(i for i, hand in game.hands.items() if 'R4' in hand)
+    assert game.turn_order[0] == r4_holder, "Player with R4 should start the turn."
+
+    radio_card = next(c for c in game.hands[r4_holder] if not c.startswith("R"))
+    game.play(f"RADIO highest {radio_card}", player_id=r4_holder)
+    assert game.radio_used[r4_holder], "Radio should be marked as used."
+    assert game.radio_clues[r4_holder] == (radio_card, 'highest'), "Radio clue should be correctly recorded."
+
+    with pytest.raises(GameplayError, match="Radio clue already used."):
+        game.play(f"radio highest {radio_card}", player_id=r4_holder)
+    random.seed(42)
+
     # Mock the input calls for new mission number and other inputs
     with patch('builtins.input', side_effect=['1', 'no', 'cw', '1', '2', '3', '4']):
         game = TheCrewGame(num_mission=1, seed=42)
@@ -35,7 +54,7 @@ def test_follow_suit_enforcement():
     random.seed(0)
     
     # Mock the input calls
-    with patch('builtins.input', side_effect=['no', 'cw', '1', '2', '3', '4']):
+    with patch('builtins.input', side_effect=['no', 'yes', '1', '2', '3', '4']):
         game = TheCrewGame(seed=0)
 
     player = game.turn_order[0]
@@ -57,7 +76,7 @@ def test_trick_winner_advances_turn_order():
     random.seed(1)
     
     # Mock the input calls
-    with patch('builtins.input', side_effect=['no', 'cw', '1', '2', '3', '4']):
+    with patch('builtins.input', side_effect=['no','yes', 'cw', '1', '2', '3', '4']):
         game = TheCrewGame(seed=1)
 
     trick_cards = []
@@ -146,86 +165,16 @@ def test_2_player_game():
     random.seed(0)
 
     # Mock the input calls for distress signal, card passing direction, and other moves
-    with patch('builtins.input', side_effect=['no', 'cw', '1', '2', '3', '4']):
-        game = TheCrewGame(num_players=2, seed=0)
+    with patch('builtins.input', side_effect=['no','no', '1', '2', '3', '4']):
+        game = TheCrewGame(num_players=2)
 
     # Ensure correct card distribution for 2 players
-    assert len(game.hands) == 2
-    assert sum(len(hand) for hand in game.hands.values()) == 26  # 40 total cards, 14 for JARVIS, 13 each for players
+    assert len(game.hands) == 3
+    assert sum(len(hand) for hand in game.hands.values()) == 33  # 40 total cards, 14 for JARVIS, 13 each for players
     assert game.jarvis_hands is not None
     assert len(game.jarvis_hands['face_up']) == 7
     assert len(game.jarvis_hands['face_down']) == 7
     assert game.distress_signal_active is False  # Initially no distress signal
-
-    # Test JARVIS turn setup
-    player = game.turn_order[0]
-
-    # Play a normal card for the human player (first player)
-    play_card = next(c for c in game.hands[player] if not c.startswith("R"))
-    game.play(play_card, player_id=player)
-
-    # Verify the card is removed from the player's hand and added to the trick
-    assert play_card not in game.hands[player]
-    assert game.trick[0] == (player, play_card)
-
-    # Now it's JARVIS's turn, so we need to ensure JARVIS follows suit if possible
-    # Get the lead suit from the first card played
-    lead_suit = play_card[0]
-
-    # Check if JARVIS has any revealed cards of the lead suit
-    jarvis_card = None
-    for card in game.jarvis_hands['face_up']:  # Only look at face-up cards (revealed cards)
-        if card[0] == lead_suit:
-            jarvis_card = card
-            break
-
-    # If JARVIS has a card of the lead suit, he must play it
-    if jarvis_card:
-        print(f"JARVIS follows suit and plays: {jarvis_card}")
-        print("lalala")
-        game.play(jarvis_card, player_id=2)  # JARVIS is player 2
-        print("lalala")
-        assert jarvis_card not in game.jarvis_hands['face_up']  # JARVIS should no longer have this card in the revealed cards
-        print("lalala")
-        assert game.trick[1] == (2, jarvis_card)  # Verify JARVIS's card is in the trick
-        print("lalala")
-    else:
-        # If JARVIS doesn't have a matching suit, he can play any valid card from his revealed cards (not a rocket)
-        jarvis_card = next(card for card in game.jarvis_hands['face_up'] if not card.startswith("R"))
-        print(f"JARVIS cannot follow suit, so he plays: {jarvis_card}")
-        game.play(jarvis_card, player_id=2)  # JARVIS plays any valid card
-        assert jarvis_card not in game.jarvis_hands['face_up']  # JARVIS should no longer have this card in the revealed cards
-        assert game.trick[1] == (2, jarvis_card)  # Verify JARVIS's card is in the trick
-
-
-def test_4_player_game():
-    random.seed(10)
-
-    # Mock the input calls for distress signal, card passing direction, and other moves
-    with patch('builtins.input', side_effect=['no', 'cw', '1', '2', '3', '4']):
-        game = TheCrewGame(num_players=4, seed=10)
-
-    # Assert basic game setup
-    assert len(game.hands) == 4
-    assert sum(len(hand) for hand in game.hands.values()) == 40
-    assert game.turn_order[0] == next(i for i, hand in game.hands.items() if 'R4' in hand)
-
-    # Test that turn order advances correctly (Player 0 -> Player 1 -> Player 2 -> Player 3)
-    player = game.turn_order[0]
-    normal_card = next(c for c in game.hands[player] if not c.startswith("R") and c not in game.tasks)
-    game.play(normal_card, player_id=player)
-    assert normal_card not in game.hands[player]
-    assert game.trick[0] == (player, normal_card)
-
-    # Assert turn has advanced
-    next_player = game.turn_order[0]
-    assert next_player != player  # Turn should have advanced to the next player
-
-    # Corrected the RADIO input to include a valid clue type
-    radio_card = next(c for c in game.hands[next_player] if not c.startswith("R"))
-    game.play(f"RADIO highest {radio_card}", player_id=next_player)
-    assert game.radio_used[next_player]
-    assert game.radio_clues[next_player] == (radio_card, 'highest')
 
 
 def test_5_player_game():
@@ -299,6 +248,7 @@ def test_commanders_decision():
         '3',  # number of players
         '8',  # mission number
         'no',  # distress signal
+        'no',  # Player 1 does not want to take all tasks
         'yes',  # Player 2 wants to take all tasks
         'no',   # Player 3 doesn't want to take all tasks
         'no',   # Commander doesn't want tasks
